@@ -24,6 +24,7 @@ from Smartscope.core.models.hole import HoleModel
 from .preprocessing_pipeline import PreprocessingPipeline
 from .nextpyp_preprocessing_cmd_kwargs import NextPYPPreprocessingCmdKwargs
 from .nextpyp_preprocessing_pipeline_form import NextPYPPreprocessingPipelineForm
+from .nextpyp_utils import resolve_group_id, REQUIRED_APP_PERMISSIONS
 
 from nextpyp.client import Client
 from nextpyp.client.credentials import Credentials
@@ -167,6 +168,17 @@ class NextPYPPreprocessingPipeline(PreprocessingPipeline):
     def start(self):
         self.incomplete_processes = self.list_incomplete_processes()
         logger.info(f'Starting NextPYP Preprocessing')
+        # Resolve the group before waiting on frames so a bad name or token fails fast.
+        try:
+            self.group_id = resolve_group_id(self.client, self.cmd_data.group_id)
+        except ValueError:
+            raise
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not list nextPYP groups ({e}). The token at {self.path_to_token} may be "
+                f"missing permissions; it needs: {', '.join(REQUIRED_APP_PERMISSIONS)}. "
+                f"Request a new one with: smartscope.py nextpyp_request_token {self.cmd_data.url_base} {self.nextpyp_userid}"
+            ) from e
         from Smartscope.core.frames import get_smartscope_frames_dir
         smartscope_frames_dir = get_smartscope_frames_dir(self.grid)
         pixel_size, gain_ref_name = self._wait_for_mdoc_fields(smartscope_frames_dir)
@@ -178,7 +190,7 @@ class NextPYPPreprocessingPipeline(PreprocessingPipeline):
         args = SingleParticleSessionArgs(
             name=self.grid.grid_id,
             path=path,
-            group_id=self.cmd_data.group_id,
+            group_id=self.group_id,
             values=self.pyp_args.write(),
         )
         self.session_path = path
